@@ -4,5 +4,3 @@ pluginManagement {
         mavenCentral()
     }
 }
-
-rootProject.name = 'rustc-jvm-benchmarks'
