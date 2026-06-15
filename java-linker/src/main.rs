@@ -775,9 +775,9 @@ fn run_r8_optimizer(
         .arg(java_runtime_lib_path)
         .arg("--classfile");
 
-    // Add all the *other* input JARs as libraries
+    // Add the runtime shim JAR as a library input
     for lib_path in library_jar_paths {
-        cmd.arg("--classpath").arg(lib_path);
+        cmd.arg(lib_path);
     }
 
     if release_mode {
