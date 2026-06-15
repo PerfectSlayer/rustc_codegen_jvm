@@ -196,7 +196,7 @@ def investigate_test(test_name: str, release_mode: bool):
     # 7. Run with Java and capture output
     print("|-- 🤖 Running with Java and capturing logs...")
     # This classpath is copied from the original script. It assumes the script is run from the project root.
-    runtime_libs = "library/build/distributions/library-0.1.0/lib/library-0.1.0.jar:library/build/distributions/library-0.1.0/lib/kotlin-stdlib-2.1.20.jar"
+    runtime_libs = "library/build/libs/library-0.1.0.jar"
     
     if use_raw_classfiles and deps_dir is not None:
         # Use deps directory in classpath instead of JAR
