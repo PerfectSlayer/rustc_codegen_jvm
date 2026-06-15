@@ -1,12 +1,14 @@
-import static org.gradle.api.JavaVersion.VERSION_1_8
+import org.gradle.api.JavaVersion.VERSION_1_8
+import java.io.File
+import java.util.concurrent.Callable
 
 plugins {
-    id 'java'
-    id 'me.champeau.jmh' version '0.7.3'
+    java
+    id("me.champeau.jmh") version "0.7.3"
 }
 
 // Must equal [package].name in rust-lib/Cargo.toml. cargo emits the jar as <crateName>-<hash>.jar.
-ext.crateName = 'bench_rust'
+val crateName = "bench_rust"
 
 repositories {
     mavenCentral()
@@ -18,28 +20,31 @@ java {
 }
 
 jmh {
-    jmhVersion = '1.37'
+    jmhVersion = "1.37"
 }
 
 // --- Manual two-step build -------------------------------------------------------------------
 // This project does NOT run cargo. Build the Rust library first:
 //     cd rust-lib && cargo build --release
-// then run the benchmarks with ./gradlew jmh. The closure below locates the freshest
+// then run the benchmarks with ./gradlew jmh. The function below locates the freshest
 // cargo-produced jar and adds it to the JMH classpath. It is evaluated lazily (only when the
 // classpath is resolved), so `./gradlew tasks` works even before cargo has run; `./gradlew jmh`
 // fails with a clear message if the jar is missing.
-def locateRustJar = {
-    def depsDir = file("rust-lib/target/release/deps")
-    def jars = (depsDir.listFiles({ d, n -> n.startsWith(crateName) && n.endsWith('.jar') } as FilenameFilter) ?: []) as List
+fun locateRustJar(): File {
+    val depsDir = file("rust-lib/target/release/deps")
+    val jars = depsDir.listFiles { _, name ->
+        name.startsWith(crateName) && name.endsWith(".jar")
+    }?.toList().orEmpty()
     if (jars.isEmpty()) {
-        throw new GradleException(
-            "Rust benchmark jar not found in ${depsDir}.\n" +
-            "Build the Rust library first:  (cd rust-lib && cargo build --release)")
+        throw GradleException(
+            "Rust benchmark jar not found in $depsDir.\n" +
+                "Build the Rust library first:  (cd rust-lib && cargo build --release)"
+        )
     }
-    jars.max { it.lastModified() }
+    return jars.maxByOrNull { it.lastModified() }!!
 }
 
 dependencies {
     // 'jmhImplementation' flows into both the jmh compile and runtime classpaths.
-    jmhImplementation files({ locateRustJar() })
+    jmhImplementation(files(Callable { locateRustJar() }))
 }
