@@ -19,7 +19,7 @@ Everything targets and runs on **Java 8** (the Rust-compiled bytecode is class f
 
 ```
 benchmarks/
-├── build.gradle              # java + me.champeau.jmh plugin, Java 8, locates the Rust jar
+├── build.gradle.kts          # java + me.champeau.jmh plugin, Java 8, locates the Rust jar
 ├── settings.gradle
 ├── gradlew / gradlew.bat     # Gradle wrapper (pinned to Gradle 8.14.5)
 ├── rust-lib/                 # Rust crate compiled to a JVM jar
@@ -122,5 +122,5 @@ ArithmeticBenchmark.rustSumTo    avgt       2246.773   ns/op
 
 `rust-lib/.cargo/config.toml` makes `cargo build` use `rustc_codegen_jvm` as the codegen backend
 and `java-linker` as the linker, producing a self-contained jar (R8 bundles the `org/rustlang/*`
-runtime). `build.gradle` locates that jar and adds it to the `jmhImplementation` classpath, so the
+runtime). `build.gradle.kts` locates that jar and adds it to the `jmhImplementation` classpath, so the
 benchmarks compile and link against the Rust-compiled classes directly.
