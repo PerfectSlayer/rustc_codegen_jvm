@@ -1,0 +1,50 @@
+plugins {
+    id 'java'
+    id 'me.champeau.jmh' version '0.7.3'
+}
+
+// Must equal [package].name in rust-lib/Cargo.toml. cargo emits the jar as <crateName>-<hash>.jar.
+ext.crateName = 'bench_rust'
+
+repositories {
+    mavenCentral()
+}
+
+// Target Java 8: the Rust-compiled bytecode is class file v52, and the benchmarks must run on a
+// Java 8 JVM. Use source/targetCompatibility (not options.release, which is a javac 9+ flag) so
+// this builds on a JDK 8 toolchain.
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+tasks.withType(JavaCompile).configureEach {
+    sourceCompatibility = '1.8'
+    targetCompatibility = '1.8'
+}
+
+jmh {
+    jmhVersion = '1.37'
+}
+
+// --- Manual two-step build -------------------------------------------------------------------
+// This project does NOT run cargo. Build the Rust library first:
+//     cd rust-lib && cargo build --release
+// then run the benchmarks with ./gradlew jmh. The closure below locates the freshest
+// cargo-produced jar and adds it to the JMH classpath. It is evaluated lazily (only when the
+// classpath is resolved), so `./gradlew tasks` works even before cargo has run; `./gradlew jmh`
+// fails with a clear message if the jar is missing.
+def locateRustJar = {
+    def depsDir = file("rust-lib/target/release/deps")
+    def jars = (depsDir.listFiles({ d, n -> n.startsWith(crateName) && n.endsWith('.jar') } as FilenameFilter) ?: []) as List
+    if (jars.isEmpty()) {
+        throw new GradleException(
+            "Rust benchmark jar not found in ${depsDir}.\n" +
+            "Build the Rust library first:  (cd rust-lib && cargo build --release)")
+    }
+    jars.max { it.lastModified() }
+}
+
+dependencies {
+    // 'jmhImplementation' flows into both the jmh compile and runtime classpaths.
+    jmhImplementation files({ locateRustJar() })
+}
