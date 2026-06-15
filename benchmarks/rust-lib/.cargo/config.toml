@@ -1,0 +1,30 @@
+# Points cargo at the rustc_codegen_jvm backend so `cargo build` emits JVM bytecode.
+#
+# Paths are RELATIVE to this crate's directory (benchmarks/rust-lib/), which sits two
+# directories below the repository root -> "../../".
+#
+# Platform note: the codegen backend is a dynamic library whose extension differs per OS.
+#   macOS  -> librustc_codegen_jvm.dylib   (default below)
+#   Linux  -> librustc_codegen_jvm.so
+#   Windows-> rustc_codegen_jvm.dll
+# Change the suffix on the codegen-backend line if you are not on macOS.
+#
+# Prerequisite: build the parent project first (`./build.py all` from the repo root) so the
+# backend dylib, java-linker, library jar, r8 jar and proguard config all exist.
+
+[build]
+rustflags = [
+  "-Z", "codegen-backend=../../target/release/librustc_codegen_jvm.dylib",
+  "-C", "linker=../../java-linker/target/release/java-linker",
+  "-C", "link-args=../../library/build/libs/library-0.1.0.jar --r8-jar ../../vendor/r8.jar --proguard-config ../../proguard/default.pro"
+]
+
+# Throwing a JVM exception unwinds and gives a stack trace, so Rust need not handle unwinding.
+[profile.debug]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+rustflags = [
+  "-C", "link-args=--release"
+]
