@@ -2,7 +2,8 @@
 
 use super::{place::make_jvm_safe, types::ty_to_oomir_type};
 use rustc_hir::def_id::DefId;
-use rustc_middle::ty::{Instance, TyCtxt, TypeVisitableExt};
+use rustc_middle::ty::{GenericParamDefKind, Instance, TyCtxt, TypeVisitableExt};
+use rustc_span::Symbol;
 use std::collections::HashMap;
 
 const MAX_MONO_FN_NAME_LEN: usize = 128;
@@ -32,6 +33,15 @@ pub fn mono_fn_name_from_instance<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'t
 
     // Determine class (module path) from the full path (everything before the last "::")
     let class = owner_class_from_path(tcx, instance.def_id(), &full_path);
+
+    // Honor `#[jvm::export_name = "..."]`: pin the method name (verbatim, not mangled),
+    // keeping the derived owning class.
+    if let Some(exported) = jvm_export_name(tcx, instance.def_id()) {
+        return FnNameData {
+            class_to_call_on: class,
+            method_name: exported,
+        };
+    }
 
     // Use only the last path segment as the method base (so "core::panicking::panic" -> "panic")
     let method_segment = if let Some(pos) = full_path.rfind("::") {
@@ -207,4 +217,86 @@ fn sanitize_class_segment(seg: &str) -> String {
     }
 
     make_jvm_safe(seg)
+}
+
+/// Java reserved words and literals: valid bytecode names, but uncallable from Java source.
+const JAVA_RESERVED_WORDS: &[&str] = &[
+    "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char", "class",
+    "const", "continue", "default", "do", "double", "else", "enum", "extends", "final",
+    "finally", "float", "for", "goto", "if", "implements", "import", "instanceof", "int",
+    "interface", "long", "native", "new", "package", "private", "protected", "public",
+    "return", "short", "static", "strictfp", "super", "switch", "synchronized", "this",
+    "throw", "throws", "transient", "try", "void", "volatile", "while",
+    // reserved literals
+    "true", "false", "null",
+    // reserved identifier
+    "_",
+];
+
+/// Validate that `name` is a legal (ASCII) Java identifier usable as a method name.
+/// Stricter than the JVM's unqualified-name rules, so it covers both.
+fn validate_jvm_method_name(name: &str) -> Result<(), String> {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return Err("name must not be empty".to_string());
+    };
+    if !(first.is_ascii_alphabetic() || first == '_' || first == '$') {
+        return Err(format!(
+            "first character '{first}' is not a valid Java identifier start (ASCII letter, '_' or '$')"
+        ));
+    }
+    for c in chars {
+        if !(c.is_ascii_alphanumeric() || c == '_' || c == '$') {
+            return Err(format!(
+                "character '{c}' is not a valid Java identifier part (ASCII letter, digit, '_' or '$')"
+            ));
+        }
+    }
+    if JAVA_RESERVED_WORDS.contains(&name) {
+        return Err(format!("`{name}` is a reserved Java keyword or literal"));
+    }
+    Ok(())
+}
+
+/// Read a `#[jvm::export_name = "name"]` tool attribute, returning the override method name
+/// (verbatim) or `None` if absent. Emits a hard error and returns `None` when misused: on a
+/// generic fn, a missing/non-string value, or an invalid Java name.
+fn jvm_export_name<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> Option<String> {
+    let attr = tcx
+        .get_attrs_by_path(def_id, &[Symbol::intern("jvm"), Symbol::intern("export_name")])
+        .next()?;
+
+    let is_generic = tcx.generics_of(def_id).own_params.iter().any(|param| {
+        matches!(
+            param.kind,
+            GenericParamDefKind::Type { .. } | GenericParamDefKind::Const { .. }
+        )
+    });
+    if is_generic {
+        tcx.dcx().span_err(
+            attr.span(),
+            "`#[jvm::export_name]` cannot be applied to a function that is generic over types or consts",
+        );
+        return None;
+    }
+
+    let Some(value) = attr.value_str() else {
+        tcx.dcx().span_err(
+            attr.span(),
+            "`#[jvm::export_name]` requires a string value, e.g. `#[jvm::export_name = \"myMethod\"]`",
+        );
+        return None;
+    };
+
+    let name = value.as_str();
+    if let Err(reason) = validate_jvm_method_name(name) {
+        let span = attr.value_span().unwrap_or_else(|| attr.span());
+        tcx.dcx().span_err(
+            span,
+            format!("`#[jvm::export_name]` name `{name}` is not a valid Java method name: {reason}"),
+        );
+        return None;
+    }
+
+    Some(name.to_string())
 }
