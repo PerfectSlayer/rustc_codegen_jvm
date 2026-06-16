@@ -65,8 +65,6 @@ does not collide with the `rustbench` package.
 ./gradlew jmh
 ```
 
-If you rebuild the backend itself with `./build.py all`, force a fresh compile with `./gradlew jmh --rerun-tasks`.
-
 `./gradlew jmh` runs the full suite with JMH's default iteration counts (slow but rigorous).
 Results are also written to `build/results/jmh/results.txt`.
 
