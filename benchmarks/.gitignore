@@ -1,3 +1,4 @@
 .gradle/
 build/
+rust-lib/.cargo/config.toml
 rust-lib/target/
