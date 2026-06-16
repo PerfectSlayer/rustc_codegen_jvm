@@ -59,19 +59,13 @@ does not collide with the `rustbench` package.
 
 ---
 
-## Running the benchmarks (two steps)
-
-This project does **not** invoke `cargo`; you build the Rust library yourself, then run Gradle.
+## Running the benchmarks
 
 ```bash
-# 1. Compile the Rust library to a JVM jar (emits rust-lib/target/release/deps/bench_rust-<hash>.jar)
-cd rust-lib
-cargo build --release
-cd ..
-
-# 2. Run the benchmarks (Gradle finds the freshest bench_rust-*.jar and puts it on the classpath)
 ./gradlew jmh
 ```
+
+If you rebuild the backend itself with `./build.py all`, force a fresh compile with `./gradlew jmh --rerun-tasks`.
 
 `./gradlew jmh` runs the full suite with JMH's default iteration counts (slow but rigorous).
 Results are also written to `build/results/jmh/results.txt`.
@@ -100,8 +94,7 @@ ArithmeticBenchmark.rustSumTo    avgt       2246.773   ns/op
 
 ## Adding a benchmark case
 
-1. **Rust** — add a `pub fn` to the `arithmetic` module in `rust-lib/src/main.rs`, then
-   `cargo build --release`.
+1. **Rust** — add a `pub fn` to the `arithmetic` module in `rust-lib/src/main.rs`.
 2. **Java** — add a matching `static` method to `JavaArithmetic`.
 3. **Benchmark** — add a `java<Name>` / `rust<Name>` pair of `@Benchmark` methods to
    `ArithmeticBenchmark`. Read inputs from the `@State` fields (not constants) so the JIT cannot
@@ -122,5 +115,6 @@ ArithmeticBenchmark.rustSumTo    avgt       2246.773   ns/op
 
 `rust-lib/.cargo/config.toml` makes `cargo build` use `rustc_codegen_jvm` as the codegen backend
 and `java-linker` as the linker, producing a self-contained jar (R8 bundles the `org/rustlang/*`
-runtime). `build.gradle.kts` locates that jar and adds it to the `jmhImplementation` classpath, so the
-benchmarks compile and link against the Rust-compiled classes directly.
+runtime). The `buildRustLib` task in `build.gradle.kts` runs that cargo build, stages the jar, and
+adds it to the `jmhImplementation` classpath, so the benchmarks compile and link against the
+Rust-compiled classes directly.

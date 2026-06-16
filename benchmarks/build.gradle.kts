@@ -1,6 +1,4 @@
 import org.gradle.api.JavaVersion.VERSION_1_8
-import java.io.File
-import java.util.concurrent.Callable
 
 plugins {
     java
@@ -23,28 +21,33 @@ jmh {
     jmhVersion = "1.37"
 }
 
-// --- Manual two-step build -------------------------------------------------------------------
-// This project does NOT run cargo. Build the Rust library first:
-//     cd rust-lib && cargo build --release
-// then run the benchmarks with ./gradlew jmh. The function below locates the freshest
-// cargo-produced jar and adds it to the JMH classpath. It is evaluated lazily (only when the
-// classpath is resolved), so `./gradlew tasks` works even before cargo has run; `./gradlew jmh`
-// fails with a clear message if the jar is missing.
-fun locateRustJar(): File {
-    val depsDir = file("rust-lib/target/release/deps")
-    val jars = depsDir.listFiles { _, name ->
-        name.startsWith(crateName) && name.endsWith(".jar")
-    }?.toList().orEmpty()
-    if (jars.isEmpty()) {
-        throw GradleException(
-            "Rust benchmark jar not found in $depsDir.\n" +
-                "Build the Rust library first:  (cd rust-lib && cargo build --release)"
-        )
+// If you rebuild the backend itself (./build.py all), pass --rerun-tasks
+val rustJar = layout.buildDirectory.file("rust-libs/$crateName.jar")
+
+val buildRustLib by tasks.registering(Exec::class) {
+    group = "build"
+    description = "Compiles the Rust benchmark library to a JVM jar via cargo."
+    workingDir = file("rust-lib")
+    commandLine("cargo", "build", "--release")
+
+    inputs.dir("rust-lib/src")
+    inputs.file("rust-lib/Cargo.toml")
+    inputs.file("rust-lib/.cargo/config.toml")
+    outputs.file(rustJar)
+
+    // cargo emits <crateName>-<hash>.jar; copy the freshest one to the stable staged path.
+    doLast {
+        val deps = file("rust-lib/target/release/deps")
+        val produced = deps.listFiles { _, name -> name.startsWith(crateName) && name.endsWith(".jar") }
+            ?.maxByOrNull { it.lastModified() }
+            ?: throw GradleException("cargo build produced no $crateName-*.jar in $deps")
+        val dest = rustJar.get().asFile
+        dest.parentFile.mkdirs()
+        produced.copyTo(dest, overwrite = true)
     }
-    return jars.maxByOrNull { it.lastModified() }!!
 }
 
 dependencies {
-    // 'jmhImplementation' flows into both the jmh compile and runtime classpaths.
-    jmhImplementation(files(Callable { locateRustJar() }))
+    // The staged jar flows into the jmh compile and runtime classpaths
+    jmhImplementation(files(rustJar).builtBy(buildRustLib))
 }
