@@ -21,7 +21,7 @@ jmh {
     jmhVersion = "1.37"
 }
 
-// If you rebuild the backend itself (./build.py all), pass --rerun-tasks
+val repoRoot: File? = rootDir.parentFile
 val rustJar = layout.buildDirectory.file("rust-libs/$crateName.jar")
 
 val buildRustLib by tasks.registering(Exec::class) {
@@ -33,6 +33,14 @@ val buildRustLib by tasks.registering(Exec::class) {
     inputs.dir("rust-lib/src")
     inputs.file("rust-lib/Cargo.toml")
     inputs.file("rust-lib/.cargo/config.toml")
+    // ".dylib" matches rust-lib/.cargo/config.toml, .so/.dll on Linux/Windows.
+    inputs.files(
+        repoRoot?.resolve("target/release/librustc_codegen_jvm.dylib"),
+        repoRoot?.resolve("java-linker/target/release/java-linker"),
+        repoRoot?.resolve("library/build/libs/library-0.1.0.jar"),
+        repoRoot?.resolve("vendor/r8.jar"),
+        repoRoot?.resolve("proguard/default.pro"),
+    ).withPropertyName("backend")
     outputs.file(rustJar)
 
     // cargo emits <crateName>-<hash>.jar; copy the freshest one to the stable staged path.
