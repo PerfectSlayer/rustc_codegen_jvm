@@ -33,7 +33,7 @@ impl Greeter {
 pub struct Tag<T>(PhantomData<T>);
 
 impl<T> Tag<T> {
-    #[jvm::export_name = "echo"]
+    #[jvm::export_name = "echoValue"]
     pub fn echo(x: T) -> T {
         x
     }

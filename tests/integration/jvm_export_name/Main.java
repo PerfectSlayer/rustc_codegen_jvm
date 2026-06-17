@@ -17,15 +17,24 @@ public class Main {
         }
 
         // Generic-impl method: each monomorphization on its own class, under the pinned name.
-        int i = Tag_i32.echo(7);
-        long l = Tag_i64.echo(9L);
+        // The Rust item name is `echo`; the pin renames it to `echoValue` so that any
+        // call-site that falls back to the Rust item name produces NoSuchMethodError.
+        int i = Tag_i32.echoValue(7);
+        long l = Tag_i64.echoValue(9L);
         if (i != 7) {
-            throw new AssertionError("echo(int): expected 7 but got " + i);
+            throw new AssertionError("echoValue(int): expected 7 but got " + i);
         }
         if (l != 9L) {
-            throw new AssertionError("echo(long): expected 9 but got " + l);
+            throw new AssertionError("echoValue(long): expected 9 but got " + l);
         }
 
-        System.out.println("export_name test passed: " + checksum + ", " + v + ", " + i + ", " + l);
+        // Rust→Rust call through force(): exercises call-site name resolution for pinned
+        // generic-impl methods. If the naming bug is present this throws NoSuchMethodError.
+        long sum = jvm_export_name.force();
+        if (sum != 16L) {
+            throw new AssertionError("force: expected 16 but got " + sum);
+        }
+
+        System.out.println("export_name test passed: " + checksum + ", " + v + ", " + i + ", " + l + ", " + sum);
     }
 }

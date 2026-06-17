@@ -525,7 +525,11 @@ pub fn convert_basic_block<'tcx>(
                             }
                         } else {
                             // --- Associated Static Function (NO 'self') ---
-                            let method_name = tcx.item_name(func_instance.def_id()).to_string();
+                            // Prefer the `#[jvm::export_name]` pin over the Rust item name so
+                            // that call sites agree with the name used during method placement.
+                            let method_name =
+                                super::naming::jvm_export_name_silent(tcx, func_instance.def_id())
+                                    .unwrap_or_else(|| tcx.item_name(func_instance.def_id()).to_string());
                             method_signature.is_static = true;
 
                             let container_id = item.container_id(tcx);
