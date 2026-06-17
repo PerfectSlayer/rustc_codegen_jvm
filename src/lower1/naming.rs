@@ -2,7 +2,7 @@
 
 use super::{place::make_jvm_safe, types::ty_to_oomir_type};
 use rustc_hir::def_id::DefId;
-use rustc_middle::ty::{GenericParamDefKind, Instance, TyCtxt, TypeVisitableExt};
+use rustc_middle::ty::{Instance, TyCtxt, TypeVisitableExt};
 use rustc_span::Symbol;
 use std::collections::HashMap;
 
@@ -34,14 +34,9 @@ pub fn mono_fn_name_from_instance<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'t
     // Determine class (module path) from the full path (everything before the last "::")
     let class = owner_class_from_path(tcx, instance.def_id(), &full_path);
 
-    // Honor `#[jvm::export_name = "..."]`: pin the method name (verbatim, not mangled),
-    // keeping the derived owning class.
-    if let Some(exported) = jvm_export_name(tcx, instance.def_id()) {
-        return FnNameData {
-            class_to_call_on: class,
-            method_name: exported,
-        };
-    }
+    // `#[jvm::export_name]`: pinned value becomes the name base — verbatim for non-generic
+    // items; for a generic-`impl` method the suffix below only disambiguates the dedup key.
+    let export_override = jvm_export_name(tcx, instance.def_id());
 
     // Use only the last path segment as the method base (so "core::panicking::panic" -> "panic")
     let method_segment = if let Some(pos) = full_path.rfind("::") {
@@ -50,7 +45,10 @@ pub fn mono_fn_name_from_instance<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'t
         &full_path[..]
     };
 
-    let safe_base = make_jvm_safe(method_segment);
+    let safe_base = match &export_override {
+        Some(name) => name.clone(),
+        None => make_jvm_safe(method_segment),
+    };
     // We need a local map for the type conversion, similar to the original function
     let mut data_types = HashMap::new();
 
@@ -258,45 +256,57 @@ fn validate_jvm_method_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Read a `#[jvm::export_name = "name"]` tool attribute, returning the override method name
-/// (verbatim) or `None` if absent. Emits a hard error and returns `None` when misused: on a
-/// generic fn, a missing/non-string value, or an invalid Java name.
-fn jvm_export_name<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> Option<String> {
+/// Read+validate a `#[jvm::export_name = "name"]` attribute on `def_id`, returning the pinned
+/// method name or `None` if absent. `emit` reports misuse as hard errors; `emit == false` is
+/// silent, so a later pass can re-read the name without duplicating diagnostics.
+fn read_jvm_export_name<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId, emit: bool) -> Option<String> {
     let attr = tcx
         .get_attrs_by_path(def_id, &[Symbol::intern("jvm"), Symbol::intern("export_name")])
         .next()?;
 
-    let is_generic = tcx.generics_of(def_id).own_params.iter().any(|param| {
-        matches!(
-            param.kind,
-            GenericParamDefKind::Type { .. } | GenericParamDefKind::Const { .. }
-        )
-    });
-    if is_generic {
-        tcx.dcx().span_err(
-            attr.span(),
-            "`#[jvm::export_name]` cannot be applied to a function that is generic over types or consts",
-        );
+    // Reject only the fn's *own* type/const generics (`fn f<T>()`): there's no class to absorb
+    // them. Parent (`impl`) generics are fine — each monomorphization gets its own class.
+    if tcx.generics_of(def_id).own_requires_monomorphization() {
+        if emit {
+            tcx.dcx().span_err(
+                attr.span(),
+                "`#[jvm::export_name]` cannot be applied to a function that is itself generic over types or consts",
+            );
+        }
         return None;
     }
 
     let Some(value) = attr.value_str() else {
-        tcx.dcx().span_err(
-            attr.span(),
-            "`#[jvm::export_name]` requires a string value, e.g. `#[jvm::export_name = \"myMethod\"]`",
-        );
+        if emit {
+            tcx.dcx().span_err(
+                attr.span(),
+                "`#[jvm::export_name]` requires a string value, e.g. `#[jvm::export_name = \"myMethod\"]`",
+            );
+        }
         return None;
     };
 
     let name = value.as_str();
     if let Err(reason) = validate_jvm_method_name(name) {
-        let span = attr.value_span().unwrap_or_else(|| attr.span());
-        tcx.dcx().span_err(
-            span,
-            format!("`#[jvm::export_name]` name `{name}` is not a valid Java method name: {reason}"),
-        );
+        if emit {
+            let span = attr.value_span().unwrap_or_else(|| attr.span());
+            tcx.dcx().span_err(
+                span,
+                format!("`#[jvm::export_name]` name `{name}` is not a valid Java method name: {reason}"),
+            );
+        }
         return None;
     }
 
     Some(name.to_string())
+}
+
+/// Validating reader used while computing names; emits diagnostics on misuse.
+fn jvm_export_name<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> Option<String> {
+    read_jvm_export_name(tcx, def_id, true)
+}
+
+/// Silent variant for passes after naming (e.g. method placement in `lib.rs`); no diagnostics.
+pub(crate) fn jvm_export_name_silent<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> Option<String> {
+    read_jvm_export_name(tcx, def_id, false)
 }

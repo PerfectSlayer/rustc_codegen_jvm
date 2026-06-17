@@ -1046,7 +1046,9 @@ impl CodegenBackend for MyBackend {
                     );
 
                     let mut oomir_function = oomir_result.0;
-                    oomir_function.name = i.to_string();
+                    // `#[jvm::export_name]` pin overrides the Rust name (also the map key below).
+                    oomir_function.name = lower1::naming::jvm_export_name_silent(tcx, def_id)
+                        .unwrap_or_else(|| i.to_string());
 
                     // For trait implementations, replace trait type references with concrete type
                     if of_trait.is_some() {
@@ -1124,7 +1126,7 @@ impl CodegenBackend for MyBackend {
                         }) => {
                             let mut new_methods = methods.clone();
                             new_methods.insert(
-                                i.to_string(),
+                                oomir_function.name.clone(),
                                 oomir::DataTypeMethod::Function(oomir_function),
                             );
                             oomir_module.data_types.insert(
@@ -1152,7 +1154,7 @@ impl CodegenBackend for MyBackend {
                             // create a new one with reasonable defaults that will be overriden by merge_data_types once it's eventually resolved
                             let mut new_methods = HashMap::new();
                             new_methods.insert(
-                                i.to_string(),
+                                oomir_function.name.clone(),
                                 oomir::DataTypeMethod::Function(oomir_function),
                             );
                             oomir_module.data_types.insert(
@@ -1360,8 +1362,13 @@ impl CodegenBackend for MyBackend {
                             && !class_name.starts_with("org/rustlang/")
                         {
                             // It is a user class!
-                            // 1. Rename function to simple name (e.g. "new" instead of "new__hash")
-                            oomir_function.name = tcx.item_name(instance.def_id()).to_string();
+                            // 1. Name the method: `#[jvm::export_name]` pin, else the simple
+                            //    item name (e.g. "new" instead of "new__hash").
+                            oomir_function.name =
+                                lower1::naming::jvm_export_name_silent(tcx, instance.def_id())
+                                    .unwrap_or_else(|| {
+                                        tcx.item_name(instance.def_id()).to_string()
+                                    });
                             oomir_function.owner_class = None;
 
                             // 2. Check if this is an instance method.
