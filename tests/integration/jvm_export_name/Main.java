@@ -17,15 +17,28 @@ public class Main {
         }
 
         // Generic-impl method: each monomorphization on its own class, under the pinned name.
-        int i = Tag_i32.echo(7);
-        long l = Tag_i64.echo(9L);
+        int i = Tag_i32.echoValue(7);
+        long l = Tag_i64.echoValue(9L);
         if (i != 7) {
-            throw new AssertionError("echo(int): expected 7 but got " + i);
+            throw new AssertionError("echoValue(int): expected 7 but got " + i);
         }
         if (l != 9L) {
-            throw new AssertionError("echo(long): expected 9 but got " + l);
+            throw new AssertionError("echoValue(long): expected 9 but got " + l);
         }
 
-        System.out.println("export_name test passed: " + checksum + ", " + v + ", " + i + ", " + l);
+        // Rust->Rust calls: force() calls pinned static assoc fns; greeter_value() calls a
+        // pinned static fn AND a pinned instance method. A call site that falls back to the
+        // Rust item name would throw NoSuchMethodError here.
+        long sum = jvm_export_name.force();
+        if (sum != 16L) {
+            throw new AssertionError("force: expected 16 but got " + sum);
+        }
+        int gv = jvm_export_name.greeter_value(42);
+        if (gv != 42) {
+            throw new AssertionError("greeter_value: expected 42 but got " + gv);
+        }
+
+        System.out.println(
+            "export_name test passed: " + checksum + ", " + v + ", " + i + ", " + l + ", " + sum + ", " + gv);
     }
 }

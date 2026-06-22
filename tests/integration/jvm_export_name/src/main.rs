@@ -1,6 +1,10 @@
 // `#[jvm::export_name]` end-to-end: a free function, concrete-impl methods (static + instance),
 // and a generic-impl method (each monomorphization on its own class). The generic case folds in
 // the reproduction from PerfectSlayer/rustc_codegen_jvm PR #5 by @ban.
+//
+// Pins deliberately differ from the Rust item names (e.g. `echo` -> `echoValue`) so that any
+// call site falling back to the Rust name is caught: the Rust->Rust calls in `force` and
+// `greeter_value` would otherwise resolve to a method that doesn't exist.
 #![feature(register_tool)]
 #![register_tool(jvm)]
 
@@ -29,21 +33,28 @@ impl Greeter {
     }
 }
 
-// Generic-impl method: emitted on each monomorphized class (`Tag_i32`, `Tag_i64`) as `echo`.
+// Generic-impl method: emitted on each monomorphized class (`Tag_i32`, `Tag_i64`) as `echoValue`.
 pub struct Tag<T>(PhantomData<T>);
 
 impl<T> Tag<T> {
-    #[jvm::export_name = "echo"]
+    #[jvm::export_name = "echoValue"]
     pub fn echo(x: T) -> T {
         x
     }
 }
 
-// Force both monomorphizations to be collected from a reachable root.
+// Rust->Rust call to a pinned generic-impl static fn (exercises call-site name resolution).
 pub fn force() -> i64 {
     Tag::<i32>::echo(7) as i64 + Tag::<i64>::echo(9)
 }
 
+// Rust->Rust calls to a pinned static assoc fn and a pinned instance method.
+pub fn greeter_value(value: i32) -> i32 {
+    let g = Greeter::new_greeter(value);
+    g.get_value()
+}
+
 pub fn main() {
     let _ = force();
+    let _ = greeter_value(1);
 }
