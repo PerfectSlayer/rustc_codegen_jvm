@@ -411,7 +411,13 @@ pub fn convert_basic_block<'tcx>(
 
                             // Separate args for InvokeInterface/InvokeVirtual (receiver handled via 'operand')
                             let method_args = oomir_operands[1..].to_vec();
-                            let method_name = tcx.item_name(func_instance.def_id()).to_string();
+                            // Prefer the `#[jvm::export_name]` pin so this call site agrees with
+                            // the name used when the method is placed on its class.
+                            let method_name =
+                                super::naming::jvm_export_name_silent(tcx, func_instance.def_id())
+                                    .unwrap_or_else(|| {
+                                        tcx.item_name(func_instance.def_id()).to_string()
+                                    });
 
                             if let rustc_middle::ty::TyKind::Dynamic(preds, ..) =
                                 receiver_mir_ty.kind()
@@ -525,7 +531,13 @@ pub fn convert_basic_block<'tcx>(
                             }
                         } else {
                             // --- Associated Static Function (NO 'self') ---
-                            let method_name = tcx.item_name(func_instance.def_id()).to_string();
+                            // Prefer the `#[jvm::export_name]` pin so this call site agrees with
+                            // the name used when the method is placed on its class.
+                            let method_name =
+                                super::naming::jvm_export_name_silent(tcx, func_instance.def_id())
+                                    .unwrap_or_else(|| {
+                                        tcx.item_name(func_instance.def_id()).to_string()
+                                    });
                             method_signature.is_static = true;
 
                             let container_id = item.container_id(tcx);
